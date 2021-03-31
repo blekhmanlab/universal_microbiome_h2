@@ -1,0 +1,1828 @@
+---
+title: "Github code for heritability Science paper"
+output: pdf_document
+---
+
+## Background
+* This repository provides all of the files necessary to run the main text and supplementary analyses for [paper name]. It also provides code to replicate the major results and main text figures. Methods to run additional analyses using the files provided are detailed in the Supplement. R scripts roughly correspond to main text headings. 
+
+## List of provided files
+### 1. Subject data
+* git_metadata_and_community_phenotypes.csv = file with 1 row for each of the 16,234 samples used in the paper, plus columns for sample, baboon_id, collection_date, sex, age, social group, group_size, rain_month_mm, hydrological year, month, readcount, plate, post_pcr_dna_ng, diet_PC1, diet_PC2, diet_PC3, diet_PC4, diet_PC5, diet_PC6, diet_PC7, diet_PC8, diet_PC9, diet_PC10, diet_PC11, diet_PC12, diet_PC13, diet_shannon_h. This file also includes the 7 microbiome community phenotypes: bray-curtis PCs 1-5, richness, shannon's h. 
+* git_pedigree.csv = file with columns for baboon id, mom, and dad 
+* git_grooming_by_age.csv = file with grooming partner richness and diversity by age  
+* git_diet_by_age.csv = file with diet diversity by age  
+* git_2002_grooming_matrix.csv, git_2003_grooming_matrix.csv, git_2007_grooming_matrix.csv, git_2008_grooming_matrix.csv, git_2009_grooming_matrix.csv = files with grooming matrices per hydrological year 
+
+### 2. Microbiome data
+* git_ASV_table.RDS = table of 17254 microbiome samples (note that only the 16,234 samples with diet information were used in the heritability models) with taxonomy information; richness, shannon's h, and the Bray-Curtis PCs (see Supplement) are calculated from this table 
+* git_philr_balance_key.csv = phylogenetic balances represented by each PhILR node
+
+### 3. Heritability model inputs 
+* git_relative_abundance_table.RDS = relative abundance of taxa at the ASV through phylum level found in >50% of samples for the 16,234 samples with diet information
+* git_philr_table.RDS = PhILR balances of ASVs found in >50% of samples for the 16,234 samples with diet information
+* git_CLR_table.RDS = centered-log ratio transformation (CLR) of taxa at the ASV through phylum level found in >50% of the 16,234 samples with diet information
+* git_PA_table.RDS = presence/absence of taxa at the ASV through phylum level found in 10-90% of samples
+
+### 4. Heritability model outputs. Each file includes columns for phenotype, variance components and constraints, heritability estimate and SE, heritability significance, and any analysis-specific information
+* git_h2_model_283single_taxon_and_7community_phenotype_output.csv 
+* git_h2_model_283clr_output.csv  
+* git_h2_model_138philr_output.csv 
+* git_h2_model_744presenceabsence_output.csv 
+* git_h2_model_135yearly_output.csv 
+* git_h2_model_100wetseason_output.csv 
+* git_h2_model_100dryseason_output.csv 
+* git_h2_model_1400age_output.csv
+* git_h2_model_sampling_depth_output.csv
+
+### 5. Comparison to humans and other primates 
+* git_human_heritability_studies_noASV_or_unknown.csv: heritability estimates and simplified taxa names from human studies
+* git_human_heritability_studies_all_traits.csv: all heritability estimates from human studies
+* git_nonhumanprimate_and_human_microbiome_phyla.csv: mean relative abundance of phyla in nonhuman primates and humans
+
+## 1. Visualizing the microbiome data set
+* Figures 1A, 1D, 1E
+
+```{r, echo=FALSE, include=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
+
+############################################################################
+#### Script 1: Visualizing the microbiome data set  ####
+############################################################################
+
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+
+#### Figure 1A ####
+
+#order by who has the youngest sample
+m1 <- read.csv("git_metadata_and_community_phenotypes.csv", header = TRUE, row.names = 1)
+
+# order by youngest age
+m_count <- m1 %>%
+  group_by(baboon_id) %>%
+  summarise(n_samples = min(age)) %>%
+  arrange(n_samples) %>%
+  ungroup()
+m_count$sample_count_order <- 1:nrow(m_count)
+
+m2 <- merge(m1, m_count, by = "baboon_id")
+m2$sex <- ifelse(m2$sex == "M", "male", "female")
+
+#set the theme and plot
+t3<-theme(plot.margin = margin(0, 6, 0, 6),                               
+  plot.background = element_blank(), 
+  panel.grid.major.y = element_blank(), 
+  panel.grid.minor = element_blank(), 
+  panel.grid.major.x = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line.x = element_line(size=.4), 
+  axis.line.y = element_line(size=.4),
+  axis.ticks.length.y = unit(0, "pt"),
+  legend.position = c(0.6,0.9),
+  legend.title = element_blank(),
+  legend.text = element_text(color="black", size=20),
+  axis.text.x = element_text(color="black", size=18),
+  axis.title.x = element_text(color="black", size=20),
+  axis.title.y = element_text(color="black", size=20)
+)
+
+Fig1A <- ggplot(m2, aes(x=age, y=-sample_count_order)) +
+  geom_point(size = 1, shape=16, alpha = 0.5, aes(colour = sex)) +
+     scale_colour_manual(values = c("#4DAF4A", "#000075")) + #green navy
+  guides(colour = guide_legend(override.aes = list(size=3))) +
+  xlab("Age (years)") +
+  ylab("Baboon individual") +
+  scale_x_continuous(expand=c(0,0), breaks = c(5,10,15,20,25)) +
+  scale_y_discrete(expand=c(0.01,0)) +
+  t3
+
+#### Figure 1D ####
+
+m1 <- read.csv("git_nonhumanprimate_and_human_microbiome_phyla.csv", row.names = 1)
+#note that the name Kiritimatiellaeota replaces Verrucomicrobia in Mann and Berer studies, as these are the same phylum
+
+# make taxa a factor
+m1$taxa <- as.factor(m1$taxa)
+
+## group by Phyl Group
+phyl_order <- m1 %>%
+  group_by(monkey) %>%
+  sample_n(1) %>%
+  mutate(Phy2 = case_when(PhylGroup == "Lemur" ~ 1,
+                          PhylGroup == "New_World" ~ 2,
+                          PhylGroup == "Ape" ~ 3,
+                          PhylGroup == "Old_World" ~ 4)) %>%
+  arrange(Phy2, monkey) %>%
+  dplyr::select(Phy2, PhylGroup, monkey) 
+
+phyl_order$monkey_order <- 1:nrow(phyl_order)
+
+m1 <- merge(m1, phyl_order, by = c("PhylGroup", "monkey"))
+
+#order by primate group
+m1$monkey <- as.factor(m1$monkey)
+m1$monkey2 <- factor(m1$monkey, levels = unique(m1$monkey[order(m1$monkey_order)]))
+m1$CommonName <- as.factor(m1$CommonName)
+m1$CommonName2 <- factor(m1$CommonName, levels = unique(m1$CommonName[order(m1$monkey_order)]))
+
+#use the same color palette as Fig 1E
+phy_cols <- c('#3cb44b', '#ffe119', '#4363d8', '#f58231', 
+ '#911eb4', '#42d4f4', '#f032e6', '#bfef45', 
+ '#fabebe', '#469990')
+
+
+#theme and plot
+t2<-theme(                             
+  plot.background = element_blank(), 
+  panel.grid.major = element_blank(), 
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line.x = element_blank(),
+  axis.ticks.x = element_blank(),
+  axis.line.y = element_line(size=.4), 
+  legend.position="none",
+  legend.title = element_blank(),
+  axis.title.y = element_text(color="black", size=16),
+    axis.title.x = element_blank(),
+  axis.text.x = element_text(angle = 45, hjust = 1, face = "italic", size = 14),
+    axis.text.y = element_text(size = 14),
+    axis.ticks.length.x = unit(0, "pt")
+)
+
+Fig1D <- ggplot(m1, aes(x=CommonName2, y=mean_phylum_abundance, fill=taxa)) + 
+  geom_bar(stat="identity") +
+  ylab("Mean relative abundance \n of phylum in microbiome") +
+   xlab("") +
+    scale_fill_manual(values = phy_cols) +
+  scale_y_continuous(breaks=c(0,25,50,75,100)) +
+  scale_x_discrete(position = "bottom") +
+  ##lemurs ##
+    annotate("segment", x = 1, xend = 2, y = 104, yend = 104) + 
+    annotate("text", x = 1.5, y = 109, label = "Lemur") +
+  ## new world ##
+    annotate("segment", x = 3, xend = 7, y = 104, yend = 104) + 
+    annotate("text", x = 4.5, y = 109, label = "Platyrrhini") +
+  ## apes ##
+    annotate("segment", x = 8, xend = 10, y = 104, yend = 104) + 
+    annotate("text", x = 8.5, y = 109, label = "Hominidae") +
+  ## old world ##
+    annotate("segment", x = 11, xend = 16, y = 104, yend = 104) + 
+    annotate("text", x = 13.5, y = 109, label = "Cercopithecidae") +
+  t2
+
+#### Figure 1E ####
+
+m1 <- read.csv("git_metadata_and_community_phenotypes.csv", header = TRUE, row.names = 1)
+
+#upload ASV table
+phyla1 <- readRDS("git_ASV_table.RDS")
+#switch out the . for -
+colnames(phyla1) <- gsub("\\.", "-", colnames(phyla1))
+#limit it to phyla
+phyla <- as.data.frame(phyla1[,1:7])
+phyla <- subset(phyla, select = c("phylum"))
+#turn phyla into a character instead of factor
+phyla$phylum <- as.character(phyla$phylum)
+
+#some taxa were unassigned. replace  blanks w that
+phyla[is.na(phyla)] <- "Unassigned"
+#also remove white spaces; replace with _
+phyla$phylum <-gsub(" ", "_", phyla$phylum, fixed = TRUE)
+#ditto parentheses
+phyla$phylum <-gsub("(", "_", phyla$phylum, fixed = TRUE)
+phyla$phylum <-gsub(")", "_", phyla$phylum, fixed = TRUE)
+
+#subset to samples of interest
+phyla_b <- phyla1[colnames(phyla1) %in% m1$sample]
+#add taxonomy back on
+phyla <- cbind(phyla,phyla_b)
+
+#aggregate by phylum
+phyla2 <- aggregate(.~phylum, data = phyla, FUN=sum)
+
+#rescale to relative abundance, thence to percentage out of 100
+phyla2[-1] <- 100*sweep(phyla2[-1],2,colSums(phyla2[-1]),`/`)
+
+#remove unassigned row
+phyla2 <- droplevels(phyla2)
+
+#make a list of the most relatively abundant phyla
+phyla_sum <- phyla2
+phyla_sum$mean_abundance <- rowMeans(phyla_sum[-1])
+phyla_sum2 <- subset(phyla_sum, select = c("phylum","mean_abundance"))
+phyla_sum2 <- phyla_sum2[with(phyla_sum2, order(-mean_abundance)),]
+#make a table to plot
+phyla_sum_graph <- phyla_sum2
+#make phylum the rownames
+rownames(phyla_sum_graph) <- phyla_sum_graph$phylum
+phyla_sum_graph$phylum <- NULL
+
+#Keep the phyla that comprise > 0.5% of reads on average
+smol <- subset(phyla_sum2, mean_abundance < 0.5)
+#replace all taxa in rare list w unassigned
+phyla2$abundant_phyla <- ifelse(phyla2$phylum %in% smol$phylum, "Rare or unassigned", phyla2$phylum)
+#make unassisnged also into rare or unassigned
+phyla2$abundant_phyla <- ifelse(phyla2$abundant_phyla == "Unassigned", "Rare or unassigned", phyla2$abundant_phyla)
+#remove the other phylum column
+phyla2$phylum <- NULL
+#aggregate again so rare and unassigned is 1 row
+phyla3 <- aggregate(.~abundant_phyla, data = phyla2, FUN=sum)
+
+#melt it
+phyla22 <- reshape2::melt(phyla3, id.vars = "abundant_phyla")
+
+#tack on a columns for categorical variables of interest
+phyla23 <- merge(phyla22, m1, by.x= "variable", by.y = "sample")
+
+#order by date
+phyla24 <- subset(phyla23, select = c("variable", "collection_date"),abundant_phyla == "Firmicutes")
+phyla24 <- phyla24[with(phyla24, order(collection_date)),]
+phyla24$variable_order <- 1:nrow(phyla24)
+phyla24 <- subset(phyla24, select = c("variable", "variable_order"))
+phyla23 <- merge(phyla23, phyla24, by = "variable")
+
+phyla23 <- phyla23[with(phyla23, order(variable_order)),]
+phyla23$legend_order <- 1:nrow(phyla23)
+
+#add dashed bars for years
+yrs <- phyla23 %>%
+  dplyr::select(year = hydro_year, variable_order) %>%
+  distinct()
+
+#X location of year label
+vars <- yrs %>% 
+    group_by(year) %>%
+  summarise(median_var = (median(c(max(variable_order),min(variable_order)))))
+yrs_x <- vars$median_var
+
+#Y location of year label
+yrs_y <- rep(-7,14)
+#yr labels
+yrs_labs <- unique(yrs$year)
+
+#create year label text
+yrs_labs2 <- c("", 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,2013)
+
+#location for years bar
+yrs_bar <- yrs %>%
+  group_by(year) %>%
+  arrange(year) %>%
+    slice(1L)
+
+#graph it
+
+#use color palette from https://sashat.me/2017/01/11/list-of-20-simple-distinct-colors/
+phy_cols <- c('#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabebe', '#469990')
+
+#set the theme + plot
+t1<-theme(plot.margin = margin(0, 0, 6, 6),                               
+  plot.background = element_blank(), 
+  panel.grid.major = element_blank(), 
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line.x = element_blank(),
+  axis.ticks.x = element_blank(),
+  axis.line.y = element_line(size=.4), 
+  legend.position="right",
+  legend.title = element_blank(),
+  legend.text=element_text(size=18),
+  axis.title.x = element_text(color="black", size=20),
+  axis.title.y = element_text(color="black", size=20),
+  axis.text.x = element_blank(),
+    axis.text.y = element_text(color="black", size=18)
+)
+
+Fig1E <- ggplot(phyla23, aes(x=factor(variable_order), y=value, fill=abundant_phyla)) + 
+  geom_bar(stat="identity") +
+  ylab("Relative abundance of \n phylum in microbiome") +
+   xlab("Collection date") +
+  t1 +
+  scale_fill_manual(values = phy_cols) +
+  geom_vline(xintercept = yrs_bar$variable_order, linetype = 2) +
+  annotate("text", x = yrs_x+200, y = yrs_y, label = yrs_labs2, size=5, angle = 90, vjust = 0) +
+  coord_cartesian(clip="off")
+```
+
+## 2. Running the heritability models
+* This section includes heritability model input set up; model code; sample output; extracting heritability estimates from model; and significance testing for single-taxon phenotypes (including CLR and PhILR transformations), community phenotypes, and presence/absence phenotypes. 
+
+```{r, echo=FALSE, include=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
+
+############################################################################
+#### Script 2: Running the heritability models ####
+############################################################################
+
+# NOTE: ASReml-R is available to purchase from VSN International. This section describes how to run the animal model if you have accees to ASReml-R. If you don't, skip to section 3 for interpreting model outputs. 
+
+library(pedantics)
+library(asreml)
+library(dplyr)
+library(nadiv)
+
+#### 2.1 Running the animal model on 7 community phenotypes ####
+
+#upload metadata
+m1 <- read.csv("git_metadata_and_community_phenotypes.csv", header = TRUE, row.names = 1)
+
+#asreml requires dates as numeric
+m1$collection_date <- as.Date(m1$collection_date, "%Y-%m-%d")
+m1$collection_date_numeric <- as.numeric(m1$collection_date)
+
+#make plate, month, and hydrologic year factors
+m1$hydro_year <- as.factor(m1$hydro_year)
+m1$month <- as.factor(m1$month)
+m1$plate <- as.factor(m1$plate)
+
+#read in the pedigree file, one column for "id" (child), one for "dam" (mother), one for "sire" (father); NA for unknown values
+ped = read.csv("git_pedigree.csv", header = TRUE, row.names = 1)
+
+#prepare the pedigree
+ped2 <- fixPedigree(ped)
+#note that ped2 outputs column names as "id, dam, sire" but the dam and sire labels are switched for the MOTHER and FATHER columns. asreml requires column order to be ID, FATHER, MOTHER
+colnames(ped2) <-  c("ID", "FATHER", "MOTHER")
+
+#create the inverse of the relationship matrix from the pedigree file
+ainv<-asreml.Ainverse(ped2)$ginv
+
+#add the mother and father columns to the metadata
+m1 <- merge(m1, ped2, by.x = "baboon_id", by.y = "ID") 
+
+
+#upload the microbiome phenotype file (in this case, compositional phenotypes are in the metadata file)
+tax <- m1 %>%
+  dplyr::select(sample, asv_richness, asv_shannon_h, pc1_bc, pc2_bc, pc3_bc, pc4_bc, pc5_bc)
+
+#make columns for relevant model outputs; the variance components, heritability estimates, and heritability likelikhood ratio test chi value and p-value
+t1 <- as.data.frame(matrix(nrow = ncol(tax), ncol = 14))
+rownames(t1) <- colnames(tax)
+colnames(t1) <- c("Vplate", "Vplate_constraint", "Vmom", "Vmom_constraint", "VA", "VA_constraint", "VI", "VI_constraint", "VR", "VR_constraint", "heritability", "heritability_se", "VA_LRT_chi", "VA_LRT_p")
+
+# run a separate model on every taxon
+
+for (i in 2:length(tax)){
+ #make a new dataframe as sample name and 1 taxon
+  a <- tax[,c(1,i)]
+  #add taxon to the metadata
+  a2 <- merge(m1, a, by = "sample")
+  #call furthest right column (the taxon) 'taxa'
+  a2$taxa <- a2[,c(39)]
+
+  modely<-asreml(fixed=taxa~ 1 + collection_date_numeric + readcount + age + sex + rain_month_mm + social_group + group_size + diet_PC1 + diet_PC2 + diet_PC3 + diet_PC4 + diet_PC5 + diet_PC6 + diet_PC7 + diet_PC8 + diet_PC9 + diet_PC10 + diet_PC11 + diet_PC12 + diet_PC13
+                  + post_pcr_dna_ng
+                  + hydro_year
+                  + month
+, random=  ~ped(baboon_id,var=T,init=1)+ plate + MOTHER + ide(baboon_id,var=T,init=1)
+, data=a2
+, ginverse=list(baboon_id=ainv)
+, na.method.X="include", na.method.Y="omit")
+
+   
+   #example model output from summary(modely)$varcomp
+#                                    gamma    component    std.error   z.ratio constraint
+# plate!plate.var             1.359187e+00 4.337450e+03 4.395693e+02  9.867501   Positive
+# MOTHER!MOTHER.var           1.615056e-07 5.153980e-04 5.867053e-06 87.846142   Boundary
+# ped(baboon_id, var = T)!ped 2.279129e-01 7.273177e+02 1.290650e+02  5.635281   Positive
+# ide(baboon_id, var = T)!id  1.128601e-01 3.601601e+02 7.975380e+01  4.515899   Positive
+# R!variance                  1.000000e+00 3.191209e+03 3.632725e+01 87.846142   Positive
+
+  ### constraint = 'Boundary' means the variance component contributes ~0 to the model
+  ### constraint = 'Positive' means the variance component makes some contribution to the model
+  
+   #calculate heritability and heritability SE from variance components as VA/(Vplate + Vmom + VA + VI + VR)
+   modely_h2 <- nadiv:::pin(modely, h2 ~ V3 / ( V1 + V2 + V3 + V4 + V5))
+
+   #add the relevant model output to a table
+  t1[i,1] <- summary(modely)$varcomp[c("plate!plate.var"),c("component")]
+  t1[i,2] <- as.character(summary(modely)$varcomp[c("plate!plate.var"),c("constraint")])
+  t1[i,3] <- summary(modely)$varcomp[c("MOTHER!MOTHER.var"),c("component")]
+  t1[i,4] <- as.character(summary(modely)$varcomp[c("MOTHER!MOTHER.var"),c("constraint")])
+  t1[i,5] <- summary(modely)$varcomp[c("ped(baboon_id, var = T)!ped"),c("component")]
+  t1[i,6] <- as.character(summary(modely)$varcomp[c("ped(baboon_id, var = T)!ped"),c("constraint")])
+  t1[i,7] <- summary(modely)$varcomp[c("ide(baboon_id, var = T)!id"),c("component")]
+  t1[i,8] <- as.character(summary(modely)$varcomp[c("ide(baboon_id, var = T)!id"),c("constraint")])
+  t1[i,9] <- summary(modely)$varcomp[c("R!variance"),c("component")]
+  t1[i,10] <- as.character(summary(modely)$varcomp[c("R!variance"),c("constraint")])
+  t1[i,11] <- modely_h2[1,1] #h2
+  t1[i,12] <- modely_h2[1,2] #h2_se
+
+  #run the model without pedigree
+ modely_no_ped<-asreml(fixed=taxa~ 1 + collection_date_numeric + readcount + age + sex + rain_month_mm + social_group + group_size + diet_PC1 + diet_PC2 + diet_PC3 + diet_PC4 + diet_PC5 + diet_PC6 + diet_PC7 + diet_PC8 + diet_PC9 + diet_PC10 + diet_PC11 + diet_PC12 + diet_PC13
+             + post_pcr_dna_ng
+             + hydro_year
+             + month
+, random= ~ plate + MOTHER + ide(baboon_id,var=T,init=1)
+, data=a2
+, ginverse=list(baboon_id=ainv)
+, na.method.X="include", na.method.Y="omit")
+  
+  #compare models using a likelihood ratio test
+  t1[i,13] <- 2*(modely$loglik-modely_no_ped$loglik)  #VA lrt
+  t1[i,14] <- 1-pchisq(2*(modely$loglik-modely_no_ped$loglik),1) #VA p
+}
+
+#remove the top, blank row
+t_community = t1[-1,]
+
+#### 2.2 Running the animal model on 283 single-taxon phenotypes (relative abundance) found in >50% of samples ####
+
+# Same methods as (2.1), except the 1. response variable is modified to fixed=asin(sqrt(taxa)) (see below) and 2. the tax table is the relative abundance table
+
+tax <- readRDS("git_relative_abundance_table.RDS")
+
+  modely<-asreml(fixed=asin(sqrt(taxa))~ 1 + collection_date_numeric + readcount + age + sex + rain_month_mm + social_group + group_size + diet_PC1 + diet_PC2 + diet_PC3 + diet_PC4 + diet_PC5 + diet_PC6 + diet_PC7 + diet_PC8 + diet_PC9 + diet_PC10 + diet_PC11 + diet_PC12 + diet_PC13
+                  + post_pcr_dna_ng
+                  + hydro_year
+                  + month
+, random=  ~ped(baboon_id,var=T,init=1)+ plate + MOTHER + ide(baboon_id,var=T,init=1)
+, data=a2
+, ginverse=list(baboon_id=ainv)
+, na.method.X="include", na.method.Y="omit")
+
+
+#rbind the community and single-taxon phenotypes output
+t1 <- rbind(t_community, t_single_taxon)
+
+# Correct p-values for multiple testing using a Benjamini-Hochberg correction at a 10% FDR
+
+#For all taxa with Positive VA constraints, run a 10% FDR correction using Benjamini-Hochberg (BH)
+high_h <- subset(t1, (VA_constraint != "Boundary"))
+high_h$p_adjust <- p.adjust(high_h$VA_LRT_p, method = "BH")
+#add on the adjusted p
+high_h <- subset(high_h, select = c("p_adjust"))
+t1 <- merge(t1, high_h, by = "row.names", all.x = TRUE)
+#assign taxa with Boundary VA constraint a p-value of 1
+t1$p_adjust[is.na(t1$p_adjust)] <- 1
+
+#save a copy of the output (this file is provided)
+write.csv(t1, "git_h2_model_283single_taxon_and_7community_phenotype_output.csv")
+
+
+#### 2.3 Running the animal model on CLR-transformed 283 single-taxon phenotypes found in >50% of samples ####
+
+# Same methods as (2.1), except the taxa table is the CLR table
+tax <- readRDS("git_CLR_table.RDS")
+
+#save a copy of the output (this file is provided)
+write.csv(t1, "git_h2_model_283clr_output.csv")
+
+#### 2.4 Running the animal model on PhILR-transformed 138 ASVs found in >50% of samples ####
+
+# Same methods as (2.1), except the tax table is the philr table
+tax <- readRDS("git_philr_table.RDS")
+
+#save a copy of the output (this file is provided)
+write.csv(t1, "git_h2_model_138philr_output.csv")
+
+
+#### 2.5 Running the animal model on 744 presence/absence phenotypes ####
+
+# Note that: 1. model family and maxiter are added, 2. heritability is calculated differently, and (3) likelihood ratio tests cannot be used to determine model significance so an alternate approach is used
+
+# Prep the metadata and pedigreefollowing (2.1)
+
+tax <- readRDS("git_PA_table.RDS")
+
+# make columns for relevant model outputs
+t1 <- as.data.frame(matrix(nrow = ncol(tax), ncol = 10))
+rownames(t1) <- colnames(tax)
+colnames(t1) <- c("Vplate", "Vplate_constraint", "Vmom", "Vmom_constraint", "VA", "VA_constraint", "VI", "VI_constraint", "heritability", "heritability_se")
+
+# run a separate model on every taxon in the input file
+
+for (i in 2:length(tax)){
+ #make a new dataframe as sample name and 1 taxon
+  a <- tax[,c(1,i)]
+  #add taxon to the metadata
+  a2 <- merge(m1, a, by = "sample")
+  #call furthest right column (the taxon) 'taxa'
+  a2$taxa <- a2[,c(39)]
+
+  modely<-asreml(fixed=taxa~ 1 + collection_date_numeric + readcount + age + sex + rain_month_mm + social_group + group_size + diet_PC1 + diet_PC2 + diet_PC3 + diet_PC4 + diet_PC5 + diet_PC6 + diet_PC7 + diet_PC8 + diet_PC9 + diet_PC10 + diet_PC11 + diet_PC12 + diet_PC13
+                  + post_pcr_dna_ng
+                  + hydro_year
+                  + month
+, random=  ~ped(baboon_id,var=T,init=1)+ plate + MOTHER + ide(baboon_id,var=T,init=1)
+, family = asreml.binomial(link = "logit")
+, data=a2
+, ginverse=list(baboon_id=ainv)
+, na.method.X="include", na.method.Y="omit"
+, maxiter = 20)
+
+ #example model output from summary(modely)$varcomp
+
+#                                gamma    component  std.error  z.ratio constraint
+# MOTHER!MOTHER.var       9.139588e-08 9.139588e-08         NA       NA   Boundary
+# plate!plate.var         1.914451e-01 1.914451e-01 0.02948733 6.492454   Positive
+# ped(sname, var = T)!ped 2.387441e-01 2.387441e-01 0.05831224 4.094236   Positive
+# ide(sname, var = T)!id  6.965575e-02 6.965575e-02 0.04067438 1.712522   Positive
+# R!variance              1.000000e+00 1.000000e+00         NA       NA      Fixed
+
+    #calculate heritability and heritability SE from variance components. Note that residual variance (R!variance) is a dummy output (constraint = Fixed), and the variance associated with the link function (logit link variance = 3.29) must be used in the denominator instead
+   
+   modely_h2 <- nadiv:::pin(modely, h2 ~ V3 / ( V1 + V2 + V3 + V4 + 3.29))
+   
+  t1[i,1] <- summary(modely)$varcomp[c("plate!plate.var"),c("component")]
+  t1[i,2] <- as.character(summary(modely)$varcomp[c("plate!plate.var"),c("constraint")])
+  t1[i,3] <- summary(modely)$varcomp[c("MOTHER!MOTHER.var"),c("component")]
+  t1[i,4] <- as.character(summary(modely)$varcomp[c("MOTHER!MOTHER.var"),c("constraint")])
+  t1[i,5] <- summary(modely)$varcomp[c("ped(baboon_id, var = T)!ped"),c("component")]
+  t1[i,6] <- as.character(summary(modely)$varcomp[c("ped(baboon_id, var = T)!ped"),c("constraint")])
+  t1[i,7] <- summary(modely)$varcomp[c("ide(baboon_id, var = T)!id"),c("component")]
+  t1[i,8] <- as.character(summary(modely)$varcomp[c("ide(baboon_id, var = T)!id"),c("constraint")])
+  t1[i,9] <- modely_h2[1,1] #h2
+  t1[i,10]<- modely_h2[1,2] #h2_se
+}
+
+#remove the top, blank row
+t1 = t1[-1,]
+
+  #calculate significance as if additive genetic variance (VA) makes a non-zero contribution to the model, and if the heritability standard error bars do not cross 0 
+  t1 <- t1 %>%
+    mutate(model_type_significance = case_when((VA_constraint == "Boundary") ~ "NS", 
+                                                heritability - heritability_se > 0 ~ "sig", 
+                                               heritability - heritability_se < 0  ~ "NS")) 
+
+#save a copy of the output (this file is provided)
+write.csv(t1, "git_h2_model_744presenceabsence_output.csv")
+```
+
+## 3. Genetic effects on the gut microbiome are near-universal
+* Figs. 2A, 2B, 2C
+* prevalence and h2 correlated, h2 estimates correlated / higher between transformations, h2 > maternal or individual variance
+
+```{r, echo=FALSE, include=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
+
+############################################################################
+#### Script 3: Genetic effects on the gut microbiome are near-universal ####
+############################################################################
+
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+library(ggtext)
+library(RColorBrewer)
+library(scales)
+
+#### Calculating per-sample prevalence vs heritability ####
+
+t1 <- readRDS("git_PA_table.RDS")
+t1$sample <- NULL
+t1 <- t1 %>%
+  summarise_each(funs(sum))
+t1 <- as.data.frame(t(t1))
+t1$percent_prevalence <- t1$V1/16234
+
+t2 <- read.csv("git_h2_model_744presenceabsence_output.csv")
+t1 <- merge(t2,t1, by.x = "phenotype", by.y = "row.names")
+cor.test(t1$heritability, t1$percent_prevalence)
+
+#### Comparing heritability estimates between transformations ####
+
+# Single-taxon phenotype (relative abundance) vs CLR transformation
+t1 <- read.csv("git_h2_model_283clr_output.csv")
+t1 <- t1 %>%
+  mutate(clr_h2 = heritability)
+t2 <- read.csv("git_h2_model_283single_taxon_and_7community_phenotype_output.csv")
+t2 <- t2 %>%
+  mutate(ab_h2 = heritability)
+t2 <- merge(t1, t2, by = "phenotype")
+
+cor.test(t2$ab_h2, t2$clr_h2)
+t.test(t2$ab_h2, t2$clr_h2, paired=TRUE)
+
+# Single-taxon phenotype (relative abundance) vs presence/absence 
+t1 <- read.csv("git_h2_model_744presenceabsence_output.csv")
+t1 <- t1 %>%
+  mutate(pa_h2 = heritability)
+t2 <- read.csv("git_h2_model_283single_taxon_and_7community_phenotype_output.csv")
+t2 <- t2 %>%
+  mutate(ab_h2 = heritability)
+t2 <- merge(t1, t2, by = "phenotype")
+
+cor.test(t2$ab_h2, t2$pa_h2)
+t.test(t2$ab_h2, t2$pa_h2, paired=TRUE)
+
+#### Comparing additive genetic variance vs maternal and individual variances ####
+t2 <- read.csv("git_h2_model_283single_taxon_and_7community_phenotype_output.csv")
+#calculate maternal and individual percent variance
+t2 <- t2 %>%
+  mutate(mom_prop = Vmom/(VA+VI+Vplate+VR+Vmom)) %>%
+   mutate(id_prop = VI/(VA+VI+Vplate+VR+Vmom))
+
+#heritability vs maternal variance
+t.test(t2$heritability, t2$mom_prop, paired = TRUE)
+#heritability vs individual variance
+t.test(t2$heritability, t2$id_prop, paired = TRUE)
+
+
+#### Figure 2A ####
+
+mods <- read.csv("git_h2_model_283single_taxon_and_7community_phenotype_output.csv", row.names = 1)
+drops <- c("asv_richness", "asv_shannon_h", "pc1_bc", "pc2_bc", "pc3_bc", "pc4_bc", "pc5_bc")
+mods$Response_variable <- ifelse(mods$phenotype %in% drops, "Community phenotype", "40 most heritable taxa")
+mods_top <- mods %>%
+  filter(!phenotype %in% drops) %>%
+  arrange(-heritability) 
+
+## add on ASV taxonomy info
+phyla1 <- readRDS("git_ASV_table.RDS")
+phyla1 <- phyla1 %>%
+  dplyr::select(domain, phylum, class, order, family, genus, asv_id)
+long_lab <- merge(mods_top, phyla1, by.x = "phenotype", by.y = "asv_id")
+
+long_lab <- long_lab %>%
+    mutate(domain = paste("d_", domain, sep = ""), phylum = paste("p_", phylum, sep = ""), class = paste("c_", class, sep = ""), order= paste("o_", order, sep = ""), family= paste("f_", family, sep = ""), genus= paste("g_", genus, sep = "")) %>%
+  mutate(long_id = paste(domain, phylum, class, order, family, genus, sep = "; ")) %>%
+  dplyr::select(phenotype, long_id)
+
+#clean up the labels
+long_lab$long_id <- gsub("[a-z]_NA", "NA", long_lab$long_id)
+long_lab$long_id <- gsub("[a-z]_NA; ", "", long_lab$long_id)
+long_lab$long_id <- gsub("; [a-z]_NA", "", long_lab$long_id)
+long_lab$long_id <- gsub("NA; ", "", long_lab$long_id)
+long_lab$long_id <- gsub("; NA", "", long_lab$long_id)
+long_lab$long_id <- gsub("d_Bacteria; ", "", long_lab$long_id)
+long_lab$long_id <- gsub("^.*; ", "", long_lab$long_id)
+long_lab$levs <- gsub("_.*", "", long_lab$long_id)
+long_lab$long_id <- gsub("[a-z]_", "", long_lab$long_id)
+
+long_lab <- long_lab %>%
+  mutate(new_name = paste(long_id, " (", phenotype, "; ", levs, ")", sep = ""))
+long_lab$new_name <- gsub("asv", "ASV", long_lab$new_name)
+long_lab <- long_lab %>%
+  select(phenotype, new_name)
+
+#add on label information
+mods_top<- merge(mods_top, long_lab, by = "phenotype", all.x = TRUE)
+
+# fix non-asv labels
+mods_top<- mods_top %>%
+  #rename g_ to taxa (g) and also taxa (asv)
+  mutate(new_name = case_when(is.na(new_name) ~ as.character(paste(substring(phenotype,3,), " (",substr(phenotype,1,1),")",sep="")),
+                          !is.na(new_name) ~ new_name))
+
+mods_top$new_name <- gsub("_", " ", mods_top$new_name)
+
+
+# use the top 40
+mods_top <- mods_top %>%
+  arrange(-heritability) %>%
+  slice(1:40)
+
+#order by model ordeer
+mods_top$phenotype <- factor(mods_top$phenotype, levels = mods_top$phenotype[order(-mods_top$heritability)])
+
+#remove extra columns
+mods_top$levs <- NULL
+mods_top$long_id <- NULL
+
+#ditto community phenotypes
+mods_ph <- mods %>%
+    arrange(-heritability) %>%
+  filter(phenotype %in% drops) %>%
+  mutate(new_name = case_when(phenotype == "asv_richness" ~ "ASV richness",
+                             phenotype == "asv_shannon_h" ~ "ASV Shannon's H",
+                             phenotype == "pc1_bc" ~ "Bray-Curtis PC1",
+                             phenotype == "pc2_bc" ~ "Bray-Curtis PC2",
+                             phenotype == "pc3_bc" ~ "Bray-Curtis PC3",
+                             phenotype == "pc4_bc" ~ "Bray-Curtis PC4",
+                             phenotype == "pc5_bc" ~ "Bray-Curtis PC5"
+                              ))
+
+#order by modsel ordeer
+mods_ph$phenotype <- factor(mods_ph$new_name, levels = mods_ph$new_name[order(-mods_ph$heritability)])
+levels(mods_ph$phenotype)
+
+mods_b <- rbind(mods_top, mods_ph)
+mods_b <- droplevels(mods_b)
+
+#pick colors
+palBcol <-c("#6a3d9a", "#33a02c")
+
+t3<-theme(plot.margin = unit(c(0, 0, 0, 0), "cm"),                          
+  plot.background = element_blank(), 
+  panel.grid.major.x = element_line(color = "grey", size = 0.4), 
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line.x = element_line(size=.4), 
+  axis.line.y = element_line(size=.4), 
+  legend.position="top",
+ # legend.position=c(-1,1),
+  legend.justification='left',
+  legend.title=element_blank(), 
+    legend.text=element_text(size=14),
+  axis.title.y = element_blank(),
+  axis.title.x = element_text(color="black", size=20),
+  axis.text = element_text(color="black", size=16)
+)
+
+
+Fig2A <- ggplot(mods_b, aes(x=phenotype, y=heritability)) +
+  geom_point(aes(colour=Response_variable), size = 3) +
+    scale_x_discrete(limits = rev(levels(mods_b$phenotype)), labels = rev(mods_b$new_name)) +
+  geom_errorbar(aes(ymax = heritability+heritability_se, ymin = heritability-heritability_se, colour=Response_variable), size=0.6) +
+     scale_colour_manual(values = palBcol, guide = guide_legend(title = "",ncol=1)) +
+ labs(y = expression(paste("Heritability (", h^2, ") +/- SE"))) +
+  scale_y_continuous(breaks = c(0, 0.05, 0.1, 0.15, 0.2, 0.25), label = c(0, "", 0.1, "", 0.2, "")) +
+  coord_flip() + 
+ t3
+
+
+#### Figure 2B ####
+
+# 283 single-taxa phenotypes
+rh <- read.csv("git_h2_model_283single_taxon_and_7community_phenotype_output.csv", row.names = 1)
+nope <- c("asv_richness", "pc1_bc", "pc2_bc", "pc3_bc", "pc4_bc", "pc5_bc", "asv_shannon_h")
+rh <- rh %>%
+    filter(!phenotype %in% nope) %>%
+    mutate(model_type = "Relative abundance") %>%
+    mutate(model_type_significance = case_when(p_adjust < 0.1 ~ "sig", 
+                                                p_adjust >= 0.1 ~ "NS")) %>%
+  dplyr::select(model_type, model_type_significance, heritability)
+  
+# clr 
+clr <- read.csv("git_h2_model_283clr_output.csv", row.names = 1)
+clr <- clr %>%
+    mutate(model_type = "CLR") %>%
+    mutate(model_type_significance = case_when(p_adjust < 0.1 ~ "sig", 
+                                                p_adjust >= 0.1 ~ "NS")) %>%
+  dplyr::select(model_type, model_type_significance, heritability)
+
+# philr
+philr <- read.csv("git_h2_model_138philr_output.csv", row.names = 1)
+philr <- philr %>%
+    mutate(model_type = "PhILR") %>%
+    mutate(model_type_significance = case_when(p_adjust < 0.1 ~ "sig", 
+                                                p_adjust >= 0.1 ~ "NS")) %>%
+  dplyr::select(model_type, model_type_significance, heritability)
+
+# binomal
+bin <- read.csv("git_h2_model_744presenceabsence_output.csv", row.names = 1)
+bin <- bin %>%
+    mutate(model_type = "Presence/absence") %>%
+    mutate(model_type_significance = case_when((VA_constraint == "Boundary") ~ "NS", 
+                                                heritability - heritability_se > 0 ~ "sig", 
+                                               heritability - heritability_se < 0  ~ "NS")) %>%
+  dplyr::select(model_type, model_type_significance, heritability)
+
+#combine them
+m1 <- rbind(rh, clr, philr, bin)
+m1$model_type_significance2 <- paste(m1$model_type, m1$model_type_significance, sep = "_")
+
+#color by h2 but all of them are the same
+palD2 <- c('#6a3d9a', '#cab2d6')
+
+#make sure NS listed first so it shows up in front on the graph
+m1$model_type_significance <- as.factor(m1$model_type_significance)
+m1$model_type_significance <- factor(m1$model_type_significance,levels(m1$model_type_significance)[c(2,1)])
+
+#make model type a factor so it's
+m1$model_type <- as.factor(m1$model_type)
+m1$model_type <- factor(m1$model_type,levels(m1$model_type)[c(4,1,2,3)])
+
+#make summary text about # heritable at p<0.1
+sig_counts <- m1 %>%
+  group_by(model_type, model_type_significance) %>%
+  dplyr::summarise(n())
+l2 <- c("273/283 (96%) heritable", "280/283 (99%) heritable", "132/138 (96%) heritable", "704/744 (95%) heritable")
+labs1 <- data.frame(model_type = unique(m1$model_type))
+labs1$label_it <- l2
+
+#make a label mean
+dMean2 <- m1 %>%
+  filter(model_type_significance == "sig") %>%
+    group_by(model_type) %>%
+    summarise(MN = signif(mean(heritability), digits = 2))
+
+t2<-theme(plot.margin = margin(6, 6, 0, 6),                              
+  plot.background = element_blank(), 
+  panel.grid.major = element_blank(), 
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line.x = element_line(size=.4), 
+  axis.line.y = element_blank(), 
+  legend.position="none",
+  axis.title.x = element_text(color="black", size=20),
+    axis.text.x = element_text(color="black", size=18),
+  axis.title.y = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks.y = element_blank(),
+ # strip.background = element_rect(fill = "white"),
+  strip.text.x = element_text(angle = 0, size=18), #1 is right aligned, anfle 0 is rotates
+    panel.spacing = unit(0, "lines") #no space between the facets aka they stack closer on top of each other
+)
+
+Fig2B <- ggplot(m1, aes(
+  x=heritability,
+  fill= model_type_significance,
+  colour = model_type_significance
+)) + 
+     geom_histogram(position="identity", binwidth = 0.007) +
+  scale_color_manual(values = palD2) +
+    scale_fill_manual(values = alpha(palD2, 0.8)) +
+   facet_wrap( ~ model_type, ncol=1, strip.position = "top") +
+  labs(x = expression(paste("Heritability (", h^2, ")"))) +
+      geom_text(data = labs1, aes(x = 0.18, y = 29, label = label_it), size = 5, inherit.aes = FALSE) +
+  geom_vline(data = dMean2, aes(xintercept = as.numeric(MN)), col="yellow", size=1) +
+   geom_text(data = dMean2, aes(x = as.numeric(MN), y = 45, label = MN), size = 5, inherit.aes = FALSE) +
+  t2
+
+
+#### Figure 2C ####
+
+# 283 single-taxa phenotypes + 7 community phenotypes
+mods <- read.csv("git_h2_model_283single_taxon_and_7community_phenotype_output.csv", row.names = 1)
+mods3 <- mods %>%
+  mutate(Technical = 100*(Vplate/(Vplate+Vmom+VA+VI+VR)),
+         Maternal = 100*(Vmom/(Vplate+Vmom+VA+VI+VR)),
+         `Additive genetic` = 100*(VA/(Vplate+Vmom+VA+VI+VR)),
+         `Individual identity` = 100*(VI/(Vplate+Vmom+VA+VI+VR))
+        ) %>%
+  dplyr::select(phenotype, Technical, Maternal, `Additive genetic`, `Individual identity`)
+
+#melt the data to get the Components as a column
+mods3 <- reshape2::melt(mods3)
+colnames(mods3) <- c("phenotype", "Component", "est")
+
+#add on the p value column
+mods2 <- subset(mods, select = c("phenotype", "p_adjust"))
+mods3 <- merge(mods2, mods3, by.x = "phenotype")
+colnames(mods3) <- c("Model", "pedigree_p", "component", "est")
+
+plotdat <- mods3
+
+# Need to reorder levels so they plot in the right order left to right: technical, maternal, baboon id, additive genetic
+plotdat$component <- as.factor(plotdat$component)
+plotdat$component <- factor(plotdat$component,levels(plotdat$component)[c(1,2,4,3)])
+
+#add a column for if it's taa or not
+not_tax <- c("pc1_bc", "pc2_bc", "pc3_bc", "pc4_bc", "pc5_bc", "asv_richness", "asv_shannon_h")
+
+#reorder phenotypes so it's by highest heritability, and group by taxa vs community phenotype
+h_order <- mods
+h_order$status <- ifelse(h_order$phenotype %in% not_tax, "Non-taxa phenotype", "Taxa")
+h_order$tax_level <- substr(h_order$phenotype, 0,2)
+#add in level, order levels
+h_order <- h_order %>%
+  mutate(tax_level2 = case_when(status == "Non-taxa phenotype" ~ "composition",
+                                tax_level == "p_" ~ "phylum",
+                                tax_level == "c_" ~ "class",
+                                tax_level == "o_" ~ "order",
+                                tax_level == "f_" ~ "family",
+                                tax_level == "g_" ~ "genus",
+                                tax_level == "as" ~ "ASV")) %>%
+    mutate(tax_level_numeric = case_when(status == "Non-taxa phenotype" ~ 7,
+                                tax_level == "p_" ~ 6,
+                                tax_level == "c_" ~ 5,
+                                tax_level == "o_" ~ 4,
+                                tax_level == "f_" ~ 3,
+                                tax_level == "g_" ~ 2,
+                                tax_level == "as" ~ 1)) %>%
+  arrange(tax_level_numeric, heritability) %>%
+    group_by(status) %>%
+  dplyr::mutate(variable_order = 1:n()) %>%
+  dplyr::select(phenotype, variable_order, status, tax_level2, heritability) 
+
+plotdat <- merge(plotdat, h_order, by.x = "Model", by.y = "phenotype")
+
+
+pal <- c('#a1dab4','#016450','#41b6c4','#225ea8')
+
+## no legend
+th2 <- theme(
+  axis.line.y = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  panel.border = element_blank(),
+  panel.background = element_blank(),
+  legend.position = "none",
+    axis.text.y = element_blank(),
+  axis.title.x = element_text(color="black", size=20),
+  axis.text.x = element_text(color="black", size=18),
+   axis.ticks.y = element_blank(),
+    strip.background = element_blank() #facet laabel background white, not grey
+  , strip.text.y =  element_blank() #remove teh facet labels
+, strip.text.x = element_text()
+)
+
+#community phenotype plot
+pC_1 <- ggplot(subset(plotdat, status == "Non-taxa phenotype"), aes(x = variable_order, y = est, fill=component)) +
+  geom_bar(stat = "identity",colour="white", size=0.25) +
+ scale_fill_manual(values = pal) +
+  guides(fill = guide_legend(reverse = TRUE, title = "Variance component")) +  #make additive genetic top
+   coord_flip(clip = "off") + #wont' clip text labels
+   labs(y="Percent variance explained", x=" ") +
+    annotate("text", x = 10, y = 30,label = "Community phenotype (n=7)" , color="black", size=5) +
+  ##add in dummy lines so everything lines up
+     annotate("segment", x = 2, xend = 4, y = -1, yend = -1, colour = "white") + 
+    annotate("text", x = 3, y = -3, size = 3, angle = 90, label = "b", color = "white") + 
+    th2
+
+
+line_info <- h_order %>%
+  group_by(tax_level2) %>%
+  summarise(line_min = min(variable_order), line_max = max(variable_order), line_mid = mean(variable_order))
+
+#taxa plot + legend
+th3 <- theme(plot.margin = unit(c(0, 0, 0, 0), "cm"), 
+  #axis.line.x = element_blank(), 
+  axis.line.y = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  panel.border = element_blank(),
+  panel.background = element_blank(),
+  legend.title = element_text(size=14),
+  legend.text = element_text(size=12),
+  legend.position = c(0.47, 0.075),
+    axis.text.y = element_blank(),
+    axis.title.y = element_text(color="black", size=20),
+  axis.title.x = element_text(color="black", size=20),
+  axis.text.x = element_text(color="black", size=18),
+   axis.ticks.y = element_blank(),
+    strip.background = element_blank() #facet laabel background white, not grey
+  , strip.text.y =  element_blank() #remove teh facet labels
+, strip.text.x = element_text()
+)
+
+pC_2 <- ggplot(subset(plotdat, status != "Non-taxa phenotype"), aes(x = variable_order, y = est, fill=component)) +
+  geom_bar(stat = "identity",colour="white", size=0.25) +
+ scale_fill_manual(values = pal) +
+  guides(fill = guide_legend(reverse = TRUE, title = "Variance component")) +  #make additive genetic top
+   coord_flip(clip = "off") + #wont' clip text labels
+  labs(y="Percent variance explained", x="Microbial phenotype") +
+  annotate("text", x = 290, y = 15,label = "Single-taxon phenotype (n=283)" , color="black", size=5) +
+      scale_x_discrete(expand=c(0,0)) +
+  
+  ## phylum ## 272-283
+    annotate("segment", x = 272, xend = 283, y = -1, yend = -1, colour = "darkgrey") + 
+    annotate("text", x = 280, y = -3, size = 5, angle = 90, label = "Phylum") +
+        
+  ## class ## 253 - 271
+    annotate("segment", x = 253, xend = 271, y = -1, yend = -1, colour = "darkgrey") + 
+    annotate("text", x = 258, y = -3, size = 5, angle = 90, label = "Class") +
+
+   ## order ## 232 - 252
+    annotate("segment", x = 232, xend = 252, y = -1, yend = -1, colour = "darkgrey") + 
+    annotate("text", x = 238, y = -3, size = 5, angle = 90, label = "Order") +
+  
+   ## family ## 201 - 231
+    annotate("segment", x = 201, xend = 231, y = -1, yend = -1, colour = "darkgrey") + 
+    annotate("text", x = 216, y = -3, size = 5, angle = 90, label = "Family") +
+
+   ## genus ## 140 - 200
+    annotate("segment", x = 140, xend = 200, y = -1, yend = -1, colour = "darkgrey") + 
+    annotate("text", x = 170, y = -3, size = 5, angle = 90, label = "Genus") +
+
+   ## asv ## 253 - 271
+    annotate("segment", x = 1, xend = 139, y = -1, yend = -1, colour = "darkgrey") + 
+    annotate("text", x = 70, y = -3, size = 5, angle = 90, label = "ASV") +
+
+        th3
+
+Fig2C <- plot_grid(pC_1, pC_2, align = "hv", ncol = 1, rel_heights = c(1.5,10))
+```
+
+## 4. Humans and baboons share heritable taxa
+* Fig. 2D
+* pearson r, linear mixed model 
+
+```{r, echo=FALSE, include=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
+
+############################################################################
+#### Script 4: Humans and baboons share heritable taxa ####
+############################################################################
+
+library(ggplot2)
+library(RColorBrewer)
+library(lmerTest)
+library(dplyr)
+
+#### Comparing heritability estimates in humans vs baboons ####
+
+#read in current baboon study, limit to only heritable traits
+babs <- read.csv("git_h2_model_283single_taxon_and_7community_phenotype_output.csv", row.names = 1)
+babs <- babs %>%
+  mutate(baboon_h2_estimate = heritability) %>%
+ mutate(baboon_is_heritable = ifelse(p_adjust < 0.1, "heritable", "NS")) %>%
+  mutate(simple_name = phenotype) %>%
+  filter(baboon_is_heritable == "heritable") %>%
+  dplyr::select(baboon_h2_estimate, baboon_is_heritable, simple_name)
+
+#read in processed human studies, limit to only heritable traits
+humans <- read.csv("git_human_heritability_studies_noASV_or_unknown.csv", row.names = 1)
+humans <- humans %>%
+  filter(is_heritable == "heritable")
+
+#limit datasets to only traits with exact name nmatches 
+mods_graph <- merge(babs, humans, by = "simple_name")
+mods_graph <- mods_graph %>%
+  arrange(simple_name)
+
+#add a descriptive label
+mods_stats <- mods_graph %>%
+  group_by(dataset) %>%
+  dplyr::summarise(n_traits = n()) %>%
+  mutate(`Human dataset and n shared heritable traits` = paste(dataset, " (", n_traits, ")", sep= ''))
+
+mods_graph <- merge(mods_graph, mods_stats, by = "dataset")
+
+# Linear mixed model, controlling for some taxa appearing in multiple datasets
+lm1 <- lmer(h2_estimate ~ baboon_h2_estimate + (1|dataset), data = mods_graph)
+summary(lm1)
+
+# Calculate the correlation between mean human and baboon heritability
+mean_h2 <- mods_graph %>%
+  group_by(simple_name) %>%
+  summarise(mean_human_h2 = mean(h2_estimate))
+baboon_h2 <- mods_graph %>%
+  dplyr::select(simple_name, baboon_h2_estimate) %>%
+  distinct()
+mean_h2 <- merge(mean_h2, baboon_h2, by = "simple_name")
+cor.test(mean_h2$baboon_h2_estimate, mean_h2$mean_human_h2)
+
+
+#### Fig. 2D ####
+
+#specify colors
+palEcol <-c('#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6')
+
+t1<-theme(plot.margin = unit(c(0, 0, 0, 0), "cm"),                               
+  plot.background = element_blank(), 
+  panel.grid.major.x = element_blank(), 
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line.x = element_line(size=.4), 
+  axis.line.y = element_line(size=.4), 
+  legend.position= "top",
+  legend.text = element_text(color="black", size=12),
+  legend.title = element_text(color="black", size=16),
+  axis.title = element_text(color="black", size=20),
+  axis.text = element_text(color="black", size=16)
+)
+
+Fig2D <- ggplot(mods_graph, aes(x=baboon_h2_estimate, y = h2_estimate)) + 
+  geom_point(aes(color = `Human dataset and n shared heritable traits`), size = 3) +
+  geom_smooth(method = 'lm', color = "black") +
+  scale_color_manual(values = palEcol, guide = guide_legend(ncol = 2, title.position="top", title.hjust = 0.5)) +
+  scale_x_continuous(breaks = c(0.025, 0.05, 0.075, 0.1, 0.125), labels = c(0.025, 0.05, 0.075, 0.1, 0.125)) +
+  labs(x = expression(paste("Baboon heritability (", h^2, ")"))) +
+  labs(y = expression(paste("Human heritability (", h^2, ")"))) +
+  t1
+```
+
+## 5. Year, season, and host age modify heritability estimates
+
+### 5.1 Yearly models
+* yearly models- Fig. 3A
+
+### 5.2 Season models
+* dry vs wet season models - Fig. 3B, 3C, 3D
+* season pearson corr, t-test, vp
+
+### 5.3 Age models
+* age linear model- Fig. 3E, 3F
+* age overall lmers vp, va, vr, age vs grooms, age vs diet diversity, age vs shannon h
+
+```{r, echo=FALSE, include=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
+
+############################################################################
+#### Script 5: Year, season, and host age modify heritability estimates ####
+############################################################################
+
+
+############################################################################
+#### Section 5.1: Heritability per year ####
+############################################################################
+
+library(broom)
+library(dplyr)
+library(lmerTest)
+library(ggplot2)
+library(cowplot)
+library(RColorBrewer)
+library(ggridges)
+library(ggrepel) 
+
+#### Fig 3A ####
+
+m1 <- read.csv("git_h2_model_135yearly_output.csv", row.names = 1)
+#add if h2 is significant
+m1 <- m1 %>%
+  mutate(h2_significance = case_when(p_adjust < 0.1 ~ "Heritable", 
+                                                p_adjust >= 0.1 ~ "Not heritable"))
+
+#add on full model h2 column
+#read in heritable taxa, limit to the 15 most heritable collapsed phenotypes
+mods <- read.csv("git_h2_model_283single_taxon_and_7community_phenotype_output.csv", row.names = 1)
+mods <- mods %>%
+  arrange(phenotype)
+mods <- subset(mods, phenotype %in% unique(m1$phenotype))
+mods <- mods %>%
+  arrange(-heritability) %>%
+  dplyr::select(phenotype, `Full dataset h2` = heritability, `Full dataset h2 SE` = heritability_se)
+
+m1 <- merge(m1, mods, by = "phenotype")
+#sort by hydro_year
+m1 <- m1 %>%
+  arrange(desc(-as.numeric(hydro_year)))
+m1$hydro_year <- as.factor(m1$hydro_year)
+  
+#Completely clear all lines except axis lines and make background white + add a legend
+t1<-theme(plot.margin = unit(c(0, 0, 0.1, 0), "cm"),                               
+  plot.background = element_blank(), 
+  panel.grid.major = element_blank(), 
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line.x = element_line(size=.4), 
+  axis.line.y = element_line(size=.4), 
+  legend.position="top",
+  legend.text = element_text(size = 14),
+  axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+    axis.text.y = element_text(size = 16),
+  axis.title = element_text(color="black", size=20),
+  strip.background = element_blank(), #facet laabel background white, not grey
+  strip.text.x = element_text(size = 12)
+)
+
+tax.labs = c("Prevotellaceae",
+             "CAG-873",
+             "Candidatus Methanogranum",
+             "Christensenellaceae R-7 group",
+             "Collinsella",
+             "Family XIII AD3011 group",
+             "Libanicoccus",
+             "Prevotella 2",
+             "Prevotella 9",
+             "Rikenellaceae RC9 gut group",
+             "Ruminococcaceae UCG-009",
+             "Ruminococcaceae UCG-011",
+             "Mollicutes RF39",
+             "WCHB1-41",
+             "Bray-Curtis PC1"
+              )
+
+
+names(tax.labs) <- sort(unique(as.character(m1$phenotype)))
+
+#colors
+palA <-c("#d7191c", "#2b83ba")
+palB <- c("#A9A9A9")
+
+#add a dummy column for grey SE bars
+m1$dummy_grey <- "Heritability +/- SE across all years"
+
+
+Fig3A <- ggplot(m1, aes(x=as.numeric(hydro_year))) + 
+        geom_ribbon(aes(ymin=`Full dataset h2`-`Full dataset h2 SE`, ymax=`Full dataset h2` + `Full dataset h2 SE`, fill = dummy_grey)) + 
+  scale_fill_manual(values = palB, guide = guide_legend(title = "")) + 
+    geom_line(aes(y=heritability, group = phenotype), size = 0.25, color = "black") +
+  geom_point(aes(y=heritability, colour=h2_significance), size = 2.5) +
+   scale_colour_manual(values = palA, guide = guide_legend(title = "Heritability per year", ncol = 1)) +
+  geom_errorbar(aes(y=heritability, ymin=heritability-heritability_se, ymax=heritability+heritability_se, colour=h2_significance), width=.4, position=position_dodge(.9)) + 
+  scale_x_continuous(breaks = 1:9, labels = levels(m1$hydro_year)) +
+  facet_wrap(~phenotype, ncol=3, labeller = labeller(phenotype = tax.labs), scales = 'free_y') +
+   xlab("Hydrological year") +
+     labs(y = expression(paste("Heritability (", h^2, ") +/- SE"))) +
+  t1
+
+
+############################################################################
+#### Section 5.2: Heritability per season ####
+############################################################################
+
+#### Season analyses ####
+
+## Test if wet and dry season h2 estimates are correlated for all phenotypes 
+m1 <- read.csv("git_h2_model_100wetseason_output.csv", row.names = 1)
+m2 <- read.csv("git_h2_model_100dryseason_output.csv", row.names = 1)
+m2 <- merge(m1, m2, by = "phenotype")
+cor.test(m2$heritability.x, m2$heritability.y)
+
+## Limit to phenotypes heritable in both seasons
+m3 <- m2 %>%
+  filter(p_adjust.x < 0.1) %>%
+  filter(p_adjust.y < 0.1)
+cor.test(m3$heritability.x, m3$heritability.y)
+
+## Test if wet season h2 < dry season h2
+t.test(m3$heritability.x, m3$heritability.y, paired = TRUE)
+
+## Test if wet season Vp > dry season Vp for all phenotypes
+m2 <- m2 %>%
+  mutate(Vp.x = VA.x+VI.x+Vmom.x+Vplate.x+VR.x) %>%
+  mutate(Vp.y = VA.y+VI.y+Vmom.y+Vplate.y+VR.y) %>%
+  #exclude richness and shannon's h, as their Vps are several orders of magnitude higher
+  filter(phenotype != "asv_shannon_h") %>%
+  filter(phenotype != "asv_richness")
+t.test(m2$Vp.x, m2$Vp.y, paired = TRUE)
+
+
+#### Fig 3B ####
+
+m1 <- read.csv("git_h2_model_100wetseason_output.csv", row.names = 1)
+m1 <- m1 %>%
+  mutate(h2_wet = heritability, h2_se_wet = heritability_se, p_adjust_wet = p_adjust)
+
+m2 <- read.csv("git_h2_model_100dryseason_output.csv", row.names = 1)
+m2 <- m2 %>%
+  mutate(h2_dry = heritability, h2_se_dry = heritability_se, p_adjust_dry = p_adjust)
+
+mods <- merge(m1, m2, by = "phenotype")
+
+#make 1 pedigree status column
+mods$Heritable <- ifelse((mods$p_adjust_dry < 0.1) & (mods$p_adjust_wet < 0.1), "Both seasons", 
+                  ifelse((mods$p_adjust_dry < 0.1) & (mods$p_adjust_wet >= 0.1), "Dry season only",
+                  ifelse((mods$p_adjust_dry >= 0.1) & (mods$p_adjust_wet < 0.1), "Wet season only",
+                  ifelse((mods$p_adjust_dry >= 0.1) & (mods$p_adjust_wet >= 0.1), "Neither season", "error"))))
+
+#order levels
+mods$Heritable <- as.factor(mods$Heritable)
+mods$Heritable <- factor(mods$Heritable, levels(mods$Heritable)[c(1,2,4,3)])
+
+
+#Completely clear all lines except axis lines and make background white + add a legend
+t3<-theme(plot.margin = unit(c(0, 0, 0.1, 0), "cm"),                               
+  plot.background = element_blank(), 
+  panel.grid.major = element_blank(), 
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line.x = element_line(size=.4), 
+  axis.line.y = element_line(size=.4), 
+  legend.position=c(0.025, 0.9),
+  legend.text = element_text(size = 14),
+  axis.title = element_text(color="black", size=20),
+  axis.text = element_text(size = 18)
+)
+
+
+#pick colors
+pal<-c("#d7191c", "#fdbf6f", "#b2df8a", "#3288bd")
+
+Fig3B <- ggplot(mods, aes(y=h2_dry, x=h2_wet)) +
+   geom_abline(intercept = 0, slope = 1, colour = "darkgrey", weight = 2, linetype = 'dashed') +
+  geom_errorbarh(aes(xmax = h2_wet+h2_se_wet, xmin = h2_wet-h2_se_wet, colour=Heritable), size=0.6) +
+  geom_errorbar(aes(ymax = h2_dry+h2_se_dry, ymin = h2_dry-h2_se_dry, colour=Heritable), size=0.6) +
+  geom_point(aes(fill=Heritable), size = 3, shape = 21) +
+  scale_colour_manual(values = pal) +
+  scale_fill_manual(values = pal) +
+  geom_smooth(method="lm", se=TRUE, color = "black") +
+   labs(y = expression(paste("Dry season heritability (", h^2, ") +/- SE")), x = expression(paste("Wet season heritability (", h^2, ") +/- SE"))) +
+ t3
+
+#### Fig 3C ####
+
+#limit it to only microbes heritable in both seasons
+mods2 <- mods %>%
+  filter(Heritable == "Both seasons")
+
+#Note direction
+mods2$Direction <- ifelse(mods2$h2_dry > mods2$h2_wet, "Dry > wet", "Wet > dry")
+
+wet_mods <- mods2 %>%
+  dplyr::select(phenotype, h2 = h2_wet, Direction) %>%
+  mutate(Season = "Wet")
+dry_mods <- mods2 %>%
+  dplyr::select(phenotype, h2 = h2_dry, Direction) %>%
+  mutate(Season = "Dry")
+mods2 <- rbind(wet_mods, dry_mods)
+
+t3<-theme(plot.margin = unit(c(0, 0, 0.1, 0), "cm"),                               
+  plot.background = element_blank(), 
+  panel.grid.major.x =  element_blank(), 
+  panel.grid.major.y =  element_blank(), 
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line = element_line(size=.4), 
+  legend.position=c(0.3, 0.9),
+  axis.title.x = element_blank(),
+  axis.title.y = element_text(color="black", size=20),
+  axis.text = element_text(size = 18)
+)
+
+#pick the colors
+linepal <- c("#fdbf6f","#b2df8a")
+pointpal<-c("#d7191c", "#3288bd")
+
+Fig3C <- ggplot(mods2, aes(y=h2, x=Season, group = phenotype)) +
+  geom_line(aes(colour = Direction), size = 1) +
+  geom_point(aes(fill = Direction), shape=21, size = 2) +
+  labs(y = expression(paste("Heritability (", h^2, ")"))) +
+  scale_colour_manual(values = linepal) +
+  scale_fill_manual(values = linepal) +
+  scale_y_continuous(breaks = c(0, 0.1, 0.2, 0.3), labels = c(0.0, 0.1, 0.2, 0.3), limits = c(0.0,0.3)) +
+ t3
+
+
+#### Fig 3D ####
+
+m1 <- read.csv("git_metadata_and_community_phenotypes.csv")
+
+palA <-c("#fdbf6f", "#b2df8a")
+
+t1<-theme(plot.margin = unit(c(0, 0, 0, 0), "cm"),                               
+  plot.background = element_blank(), 
+  panel.grid.major = element_blank(), 
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line = element_line(size=.4), 
+  legend.position="none",
+#  axis.text.x = element_text(angle = 45, hjust=1),
+  axis.title.x = element_blank(), 
+  axis.title.y = element_text(color="black", size=20),
+  axis.text = element_text(size = 18)
+)
+
+Fig3D <- ggplot(m1, aes(y=diet_shannon_h, x=season)) +
+  geom_boxplot(aes(fill = season)) + 
+     scale_fill_manual(values = palA) +
+  ylab("Dietary Shannon's H") +
+  t1
+
+
+
+############################################################################
+#### Section 3.3: Heritability per age class ####
+############################################################################
+
+#### Testing which phenotypes change with age ####
+
+ups <- read.csv("git_h2_model_1400age_output.csv", row.names = 1)
+
+#make model number a factor, then numeric
+ups$model_number <- as.factor(ups$model_number)
+ups$model_number <- factor(ups$model_number, levels(ups$model_number)[c(1:2,7:14,3:6)])
+ups$model_number_numeric <- as.numeric(ups$model_number)
+
+#loop through and run a linear model for each taxon
+dfHour = ups %>% 
+  group_by(phenotype) %>%
+  do(fitHour = lm(heritability ~ model_number_numeric, data = .))
+
+dfHourCoef = tidy(dfHour, fitHour)
+
+#limit to phenotypes with increasing h2 with age
+ups2 <- dfHourCoef %>%
+  filter(term == "model_number_numeric") %>%
+  filter(p.value < 0.05) %>%
+  filter(estimate > 0) %>%
+  arrange(-estimate)
+
+#### Testing changes in Vp, Vr, and Va with age ####
+
+m1 <- ups %>%
+  #exclude phenotypes where variance is several orders of magnitude higher
+  filter(phenotype != "asv_shannon_h") %>%
+  filter(phenotype != "asv_richness") %>%
+  mutate(VP = VA+VI+Vmom+Vplate+VR)
+
+lm1 <- lmer(VA ~ model_number_numeric + n_samples + n_snames + (1|phenotype), data=m1)
+lm1 <- lmer(VR ~ model_number_numeric + n_samples + n_snames + (1|phenotype), data=m1)
+lm1 <- lmer(VP ~ model_number_numeric + n_samples + n_snames + (1|phenotype), data=m1)
+
+#### Testing if diet diversity changes with age ####
+
+mods <- read.csv("git_diet_by_age.csv", row.names = 1)
+mods$model_number <- as.factor(mods$age_window)
+mods$model_number <- factor(mods$model_number, levels(unique(mods$model_number))[c(1:2,7:14,3:6)])
+
+lm1 <- lmer(diet_shannon_h ~ as.numeric(model_number) + (1|baboon_id), data = subset(mods, season == "dry"))
+lm1 <- lmer(diet_shannon_h ~ as.numeric(model_number) + (1|baboon_id), data = subset(mods, season == "wet"))
+
+
+#### Testing if grooming partner diversity change with age ####
+
+f1 <- read.csv("git_grooming_by_age.csv", row.names = 1)
+lm1 <- lmer(grooming_partner_diversity ~ age_in_years + (1|social_groups) + (1|hydrological_years) + (1|baboon_id), data = f1)
+lm1 <- lmer(grooming_partner_richness ~ age_in_years + (1|social_groups) + (1|hydrological_years) + (1|baboon_id), data = f1)
+
+#### Testing if microbiome diversity change with age ####
+
+m1 <- read.csv("git_metadata_and_community_phenotypes.csv", header = TRUE, row.names = 1)
+p1 <- read.csv("git_pedigree.csv", header = TRUE, row.names = 1)
+m1 <- merge(m1, p1, by.x = "baboon_id", by.y = "ID")
+
+m1$collection_date <- as.Date(m1$collection_date, "%Y-%m-%d")
+m1$plate <- as.factor(m1$plate)
+m1$collection_date_numeric <- as.numeric(m1$collection_date)
+m1$month <- as.factor(m1$month)
+m1$hydro_year <- as.factor(m1$hydro_year)
+
+lm1 <- lmer(asv_shannon_h ~ age + collection_date_numeric + readcount + sex + rain_month_mm + social_group + group_size + diet_PC1 + diet_PC2 + diet_PC3 + diet_PC4 + diet_PC5 + diet_PC6 + diet_PC7 + diet_PC8 + diet_PC9 + diet_PC10 + diet_PC11 + diet_PC12 + diet_PC13
+                  + post_pcr_dna_ng
+                  + hydro_year
+                  + month
+                  + (1|baboon_id) + (1|MOTHER) + (1|plate), data = m1)
+
+
+#### Fig 3E ####
+
+mods_ups <- merge(ups2, ups, by = "phenotype")
+
+#reverse levels
+mods_ups$model_number_rev <- mods_ups$model_number
+mods_ups$model_number_rev <- factor(mods_ups$model_number_rev, levels(mods_ups$model_number_rev)[c(14,13,12,11,10,9,8,7,6,5,4,3,2,1)])
+levels(mods_ups$model_number_rev)
+
+#Completely clear all lines except axis lines and make background white
+t3<-theme(plot.margin = unit(c(0, 0, 0, 0), "cm"),                               
+  plot.background = element_blank(), 
+  panel.grid.major = element_blank(), 
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line.x = element_line(size=.4), 
+  axis.line.y = element_line(size=.4), 
+  legend.position="none",
+  axis.title = element_text(color="black", size=20),
+  axis.text = element_text(color="black", size=18)
+)
+
+#set colors
+palA <- c("#a1d99b", "#31a354")
+
+Fig3E <- ggplot(mods_ups, aes(
+  x=heritability,
+  y=model_number_rev,
+  fill=model_number_rev,
+  rel_min_height=0.000000000001
+)) +
+  # Adding "stat = 'density' means the bandwidth (i.e. bin size)
+  # is calculated separately for each category, rather than for the
+  # dataset as a whole
+  stat_density_ridges(
+    scale = 2,
+    quantile_lines = TRUE,
+    quantiles = 2
+  ) +
+    scale_fill_cyclical(values=palA) +
+  labs(x=expression(paste("Heritability (", h^2, ")")), y='Age class (years)') +
+  #add a vertival line at the median
+  geom_vline(
+    xintercept=median(mods_ups$heritability),
+    col="yellow", linetype="dashed", size=1
+  ) +
+  t3
+
+#### Fig 3F ####
+
+#limit to phenotypes with 10 biggest changes
+ups10 <- data.frame(ups2)
+ups10 <- ups10 %>%
+  arrange(-estimate) %>%
+  slice(1:10)
+
+mods10 <- merge(ups10, ups, by = "phenotype")
+#add a column for h2
+mods10$Heritable <- ifelse(mods10$p_adjust < 0.1, "Heritable", "Not heritable")
+
+t3<-theme(plot.margin = unit(c(0, 0, 0, 0), "cm"),                              
+  plot.background = element_blank(), 
+  panel.grid.major = element_blank(), 
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line.x = element_blank(), 
+  axis.line.y = element_line(size=.4), 
+    legend.position=c(0.025, 0.9),
+  legend.title = element_text(size = 16),
+    legend.text = element_text(size = 14),
+  axis.title = element_text(color="black", size=20),
+   axis.text.x = element_text(angle = 45, hjust = 1, size = 18),
+    axis.text.y = element_text(size = 18),
+  legend.text.align = 0 #left align the legend text
+)
+
+
+tax.labs1 <- mods10 %>%
+  filter(model_number == "13-27")  %>%
+  dplyr::select(phenotype, heritability) %>%
+  distinct() %>%
+  arrange(-heritability)
+tax.labs1 <- droplevels(tax.labs1)
+
+tax.labs1$phenotype
+
+# [1] o_Mollicutes_RF39               g_Ruminococcaceae_UCG-002       g_Prevotella_2                 
+# [4] g_Bifidobacterium               g_Ruminococcaceae_UCG-014       asv_shannon_h                  
+# [7] g_Ruminococcaceae_NK4A214_group g_Ruminococcaceae_UCG-011       g_Senegalimassilia             
+# [10] g_Helicobacter 
+
+tax.labs = c(expression("Mollicutes RF39"),
+             expression(italic("Ruminococcaceae UCG-002")),
+             expression(italic("Prevotella 2")),
+             expression(italic("Bifidobacterium")),
+             expression(italic("Ruminococcaceae UCG-014")),
+             expression("ASV Shannon's H"),
+             expression(italic("Ruminococcaceae NK4A214 group")),
+             expression(italic("Ruminococcaceae UCG-011")),
+             expression(italic("Senegalimassilia")),
+             expression(italic("Helicobacter")))
+
+#use the brewer palette 
+colourCount = length(unique(tax.labs1$phenotype))
+getPalette = colorRampPalette(brewer.pal(length(unique(tax.labs1$phenotype)), "Set1"))
+
+palA <-c("#d7191c", "#2b83ba")
+
+
+Fig3F <- ggplot(mods10, aes(y=heritability, x=model_number)) +
+  geom_line(aes(group=phenotype, colour = phenotype), size = 1, show.legend = FALSE) +
+       scale_colour_manual(values = getPalette(colourCount)) +
+  geom_text_repel(data = mods10 %>% filter(model_number == "13-27") %>% arrange(heritability), label = rev(tax.labs), aes(color = phenotype),direction = "y", hjust = 0, show.legend = FALSE, xlim = c(14.5,NA), segment.size = NA, size = 4) + 
+     geom_point(aes(fill=Heritable), shape = 21, size = 2.5) +
+     scale_fill_manual(values = palA, guide = guide_legend(title = "Heritability per age class", ncol = 1)) +
+  labs(y = expression(paste("Heritability (", h^2, ")"))) +
+ xlab("Age class (years)                                                ") + 
+  coord_cartesian(xlim = c(1, 20)) + #make the x axis extend long enough that all the text fits
+  geom_segment(aes(x=0, xend=14, y=-Inf, yend=-Inf)) + #but only show line til number
+ t3
+```
+
+## 6. Longitudinal sampling affects heritability estimation
+* Fig. 4A, 4B, 4C, 4D
+
+```{r, echo=FALSE, include=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
+
+############################################################################
+#### Script 6: Longitudinal sampling affects heritability estimation ####
+############################################################################
+
+library(dplyr)
+library(ggplot2)
+library(viridis)
+library(cowplot)
+library(RColorBrewer)
+
+#### Fig. 4A ####
+ 
+m1 <- read.csv("git_metadata_and_community_phenotypes.csv", header = TRUE, row.names = 1)
+
+#get it to like the highest 100 samples = 18 baboons
+m2 <- m1 %>%
+  dplyr::group_by(baboon_id) %>%
+  dplyr::summarise(n_samples = n()) %>%
+  filter(n_samples > 100) %>%
+  droplevels()
+
+m2 <- left_join(m2, m1, by = "baboon_id")
+
+#add on tax
+tax_all <- readRDS("git_CLR_table.RDS")
+tax_all <- tax_all %>%
+  dplyr::select(sample, f_Christensenellaceae)
+
+m2 <- merge(m2, tax_all, by = "sample")
+
+#order by who has the oldest sample
+age_count <- m2 %>%
+  dplyr::group_by(baboon_id) %>%
+  dplyr::summarise(max_age = max(age)) %>%
+  arrange(max_age)
+
+age_count$age_order <- 1:nrow(age_count)
+
+#order by modsel ordeer
+age_count$baboon_id2 <- factor(age_count$baboon_id, levels = age_count$baboon_id[order(age_count$age_order)])
+m2 <- merge(m2, age_count, by = "baboon_id")
+
+#make Christensenellaceae numeric
+m2$Christensenellaceae2 <- as.character(m2$f_Christensenellaceae)
+m2$Christensenellaceae <- as.numeric(m2$Christensenellaceae2)
+
+#theme and plot
+t3<-theme(                              
+  plot.background = element_blank(), 
+  panel.grid.major.x = element_blank(), 
+  panel.grid.major.y = element_line(size=.4, colour = "grey", linetype = "dashed"), 
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line.x = element_line(size=.4), 
+  axis.line.y = element_line(size=.4), 
+  axis.ticks.y = element_blank(),
+  legend.position = "top",
+  axis.title = element_text(size = 20),
+  axis.text.y=element_blank(),
+   axis.text.x=element_text(size = 18),
+  strip.text.y = element_blank(), #don't include baboon_id label
+  strip.background = element_blank(), #facet laabel background white, not grey
+  panel.spacing = unit(0, "lines") #no space between the facets aka they stack closer on top of each other
+)
+
+Fig4A_panel1 <- ggplot(m2, aes(x=age, y=pc1_bc, group = baboon_id2, fill = baboon_id2)) +
+    geom_area(fill = "#33a02c") +
+   xlab("Age (years)") +
+   ylab("Individual Bray-Curtis PC1") +
+  facet_wrap(~baboon_id2, ncol = 1, strip.position="left", scales = "free_y") +
+    annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)+ #adds x axis line on each panel
+    xlim(min(m2$age)-0.1,max(m2$age)+0.05) + #set xlims to just above and below min/ max age
+    scale_y_continuous(breaks = c(0)) + 
+  scale_x_continuous(expand=c(0,0), breaks = c(5,10,15,20,25)) +
+   t3
+
+Fig4A_panel2 <- ggplot(m2, aes(x=age, y=Christensenellaceae), group = baboon_id2, fill = baboon_id2) +
+    geom_area(fill = "#6a3d9a") +
+   xlab("Age (years)") +
+   ylab("Individual Christensenellaceae CLR") +
+    facet_wrap(~baboon_id2, ncol = 1, strip.position="left", scales = "free_y") +
+    annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)+ #adds x axis line on each panel
+  xlim(1.1,22) + #set xlims to just above aand below min/ max
+    scale_y_continuous(breaks = c(0)) + #quants
+    scale_x_continuous(expand=c(0,0), breaks = c(5,10,15,20,25)) +
+   t3
+
+Fig4A <- plot_grid(Fig4A_panel1, Fig4A_panel2, align = "hv", ncol = 2)
+
+#### Fig. 4B ####
+
+#upload baboon subsample data
+b1 <- read.csv("git_h2_model_nsamples_per_baboon_output.csv", row.names = 1)
+b1$n_samples_per_subject <- factor(b1$n_samples_per_subject)
+
+#calculate the mean h2 and mean percent of taxa that are heritable per subsample depth
+b2 <- b1 %>%
+    group_by(n_samples_per_subject,subsample_rep, h2_status, .drop=FALSE) %>%
+  dplyr::summarise(percent_h2 = n(), mean_subsample_rep_h2 = mean(heritability)) %>%
+  filter(h2_status == "heritable") %>%
+  group_by(n_samples_per_subject) %>%
+  summarise(h2_taxa_percent = mean(percent_h2), mean_h2 = mean(mean_subsample_rep_h2, na.rm = TRUE)) %>%
+  mutate(host_species = "baboon") %>%
+  dplyr::select(host_species, n_samples_per_subject, mean_h2, h2_taxa_percent)
+b2 <- data.frame(b2)
+b2 <- b2 %>%
+  dplyr::select(host_species, n_samples_per_subject, mean_h2, h2_taxa_percent)
+ 
+#upload human data
+h1 <- read.csv("git_human_heritability_studies_all_traits.csv", row.names = 1)
+
+#calculate the mean h2 and mean percent of taxa that are heritable per human study
+h2 <- h1 %>%
+  group_by(dataset, is_heritable) %>%
+  dplyr::summarise(h2_traits = n(), mean_h2 = mean(h2_estimate))  %>%
+  dplyr::mutate(h2_taxa_percent = 100*(h2_traits / sum(h2_traits))) %>%
+  filter(is_heritable == "heritable") %>%
+  mutate(host_species = "human", n_samples_per_subject = 1) 
+h2 <- data.frame(h2)
+h2 <- h2 %>%
+  dplyr::select(host_species, n_samples_per_subject, mean_h2, h2_taxa_percent)
+
+m1 <- rbind(h2, b2)
+class(m1$n_samples_per_subject)
+m1$n_samples_per_subject <- as.numeric(as.character(m1$n_samples_per_subject))
+m1 <- m1 %>%
+  mutate(`Host species` = host_species, `Mean heritability` = mean_h2)
+
+t3<-theme(                              
+  plot.background = element_blank(), 
+  panel.grid.major = element_blank(), 
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line.x = element_line(size=.4), 
+  axis.line.y = element_line(size=.4), 
+  legend.position= c(0.4,0.3), #left, height
+  legend.title=element_text(size=18), 
+    legend.text=element_text(size=16),
+  axis.title = element_text(color="black", size=20),
+  axis.text = element_text(color="black", size=18)
+)
+
+Fig4B <- ggplot(m1, aes(x=n_samples_per_subject, y=h2_taxa_percent)) +
+  geom_point(aes(fill=`Host species`, size = `Mean heritability`), colour = "black", shape = 21, alpha = 0.5) +
+  scale_fill_viridis_d() +
+  guides(fill = guide_legend(override.aes = list(size=4))) +
+  scale_size_continuous(range = c(4,10), breaks = c(0.1,0.3,0.5)) +
+  xlab("Samples per individual") +
+  ylab("Heritable taxa (%)") +
+  scale_x_continuous(breaks = c(1,2,5,10,20)) +
+ t3
+
+
+#### Fig. 4C ####
+
+mods <- read.csv("git_h2_model_sampling_depth_output.csv")
+mods <- mods %>%
+  dplyr::filter(phenotype %in% c("asv_shannon_h","pc1_bc","g_Christensenellaceae_R-7_group","g_Prevotella_2")) %>%
+  dplyr::group_by(phenotype, n_samples) %>%
+  dplyr::summarise(quant100 = quantile(heritability, 1),
+            quant0 = quantile(heritability, 0),
+            quant95 = quantile(heritability, 0.95),
+            quant5 = quantile(heritability, 0.05),
+            quant75 = quantile(heritability, 0.75),
+            quant25 = quantile(heritability, 0.25)
+            )
+
+#make n samples numeric from a factor so they evenly space
+mods$n_samples2 <- as.factor(mods$n_samples)
+mods$n_samples2 <- as.numeric(mods$n_samples2)
+
+t1<-theme(                              
+  plot.background = element_blank(), 
+  panel.grid.major = element_blank(), 
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line.x = element_line(size=.4), 
+  axis.line.y = element_line(size=.4), 
+  legend.position="top",
+  legend.text = element_text(size = 16),
+  axis.title = element_text(color="black", size=20),
+  axis.text.x = element_text(angle = 45, hjust = 1, size = 16),
+   axis.text.y = element_text(size = 16),
+   strip.text.x = element_text(size = 16)
+)
+
+#manually label x axis
+xlabs <- unique(mods$n_samples)
+xloc <- unique(mods$n_samples2)
+
+tax.labs = c("ASV Shannon's H", "Christensenellaceae R-7 grp", "Prevotella 2","Bray-Curtis PC1")
+
+names(tax.labs) <- sort(unique(as.character(mods$phenotype)))
+
+#add columns for levels
+mods$outer <- "full data"
+mods$middle <- "90th percentile"
+mods$inner <- "50th percentile"
+
+
+Fig4C <- ggplot(mods, aes(n_samples2)) + 
+ #outer ribbon
+  geom_ribbon(aes(ymin = quant0, ymax = quant100, fill = outer)) +
+  #inner ribbon
+  geom_ribbon(aes(ymin = quant5, ymax = quant95, fill = middle)) +
+  #super inner ribbon?
+    geom_ribbon(aes(ymin = quant25, ymax = quant75, fill = inner)) +
+    scale_fill_manual(values=c("#005a32", "#33a02c", "#b2df8a"), name="") +
+    xlab("Number of samples") +
+  labs(y = expression(paste("Heritability (", h^2, ")"))) +
+    facet_wrap(~phenotype,ncol=2, labeller = labeller(phenotype = tax.labs)) +
+  scale_x_continuous(labels = xlabs, breaks = xloc) +
+    t1 
+
+
+#### Fig. 4D ####
+
+mods <- read.csv("git_h2_model_sampling_depth_output.csv", row.names =1)
+#percent models improved by pedigree. dplyr drops 0 count rows
+sigs_bc <- mods %>%
+    group_by(phenotype, n_samples, heritability_status) %>%
+    dplyr::summarise(percent_sig = n()) %>%
+    filter(heritability_status == "Heritable")
+
+#make a column for heritable in the full dataset
+sigs_full <- mods %>%
+  filter(n_samples == 16234) %>%
+  filter(subsample_rep == 1) %>%
+  dplyr::select(phenotype, full_model_heritability_status = heritability_status)
+
+mod2 <- merge(sigs_bc, sigs_full, by="phenotype")
+
+#add a column for taxon or phenotype
+drops <- c("asv_richness", "asv_shannon_h", "pc1_bc", "pc2_bc", "pc3_bc", "pc4_bc", "pc5_bc")
+mod2$Response_variable <- ifelse(mod2$phenotype %in% drops, "Community phenotype", "Single-taxon phenotype")
+
+#manually label x axis
+#make n samples numeric from a factor so they evenly space
+mod2$n_samples2 <- as.factor(mod2$n_samples)
+
+t3<-theme(                              
+  plot.background = element_blank(), 
+  panel.grid.major = element_blank(), 
+ # panel.grid.major.y = element_line(color = "grey", size = 0.4), 
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line.x = element_line(size=.4), 
+  axis.line.y = element_line(size=.4), 
+  legend.position="top",
+  legend.title=element_text(size=16), 
+  legend.text=element_text(size=14),
+  axis.title = element_text(color="black", size=20),
+  axis.text.x = element_text(angle = 45, hjust = 1, size = 16),
+  axis.text.y = element_text(color="black", size=16),
+   strip.background = element_blank(), #facet laabel background white, not grey
+)
+
+palA <-c("#d7191c", "#2b83ba")
+
+Fig4D <- ggplot(mod2, aes(x=n_samples2, y=percent_sig)) + 
+geom_line(aes(colour = factor(full_model_heritability_status), group = phenotype)) +
+  scale_color_manual(values = palA, guide = guide_legend(title = "Full dataset",ncol=2)) +
+ xlab("Number of samples") +
+ ylab("Significantly heritable traits (%)") +
+    facet_wrap(~Response_variable, ncol = 1, strip.position="left") +
+      annotate("segment", x=-Inf, xend=Inf, y=-Inf, yend=-Inf)+ #adds x axis line on each panel
+  t3
+```
